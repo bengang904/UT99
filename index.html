@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+	<meta charset="utf-8" />
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+	<meta name="robots" content="noindex, nofollow" />
+	<meta name="viewport" content="width=device-width, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+	<title>Unreal Tournament 99</title>
+	<link rel="icon" href="favicon.ico">
+	<style type="text/css">
+		html, body {
+			font-family: arial, sans-serif;
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			overflow: hidden;
+			background-color: #000;
+			position: fixed;
+			inset: 0;
+			touch-action: none;
+			-webkit-user-select: none;
+			user-select: none;
+		}
+
+		#gameRoot {
+			position: fixed !important;
+			inset: 0 !important;
+			width: 100vw !important;
+			height: 100vh !important;
+			width: 100dvw !important;
+			height: 100dvh !important;
+			background: #000;
+			overflow: hidden;
+			z-index: 1;
+		}
+
+		#canvas {
+			position: absolute !important;
+			left: 0 !important;
+			top: 0 !important;
+			width: 100% !important;
+			height: 100% !important;
+			max-width: none !important;
+			max-height: none !important;
+			display: block !important;
+			margin: 0 !important;
+			padding: 0 !important;
+			border: 0 none !important;
+			background-color: #000;
+			outline: none;
+			touch-action: none;
+			user-select: none;
+			-webkit-user-select: none;
+			transform: translateZ(0);
+			-webkit-transform: translateZ(0);
+			object-fit: fill;
+			image-rendering: auto;
+		}
+
+		#overlay {
+			position: fixed;
+			inset: 0;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background: radial-gradient(ellipse at center, rgba(20,20,20,0.92) 0%, rgba(0,0,0,0.92) 55%, rgba(0,0,0,0.96) 100%);
+			z-index: 9999;
+			opacity: 1;
+			transition: opacity 280ms ease;
+			pointer-events: none;
+		}
+
+		#overlay.hidden {
+			opacity: 0;
+			visibility: hidden;
+		}
+
+		#overlayCard {
+			width: min(720px, calc(100vw - 40px));
+			background: rgba(0,0,0,0.55);
+			border: 1px solid rgba(255,255,255,0.12);
+			border-radius: 14px;
+			padding: 22px 22px 18px;
+			box-shadow: 0 20px 80px rgba(0,0,0,0.6);
+			backdrop-filter: blur(8px);
+			-webkit-backdrop-filter: blur(8px);
+			text-align: left;
+		}
+
+		#overlayTitle {
+			font-size: 18px;
+			font-weight: 700;
+			color: rgba(255,255,255,0.92);
+			margin: 0 0 14px 0;
+			letter-spacing: 0.2px;
+		}
+
+		#overlayRow {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+			margin-bottom: 8px;
+		}
+
+		#status {
+			font-size: 13px;
+			font-weight: 600;
+			color: rgba(255,255,255,0.70);
+			margin: 0;
+			padding: 0;
+		}
+
+		#percent {
+			font-size: 12px;
+			font-weight: 700;
+			color: rgba(255,255,255,0.60);
+			min-width: 42px;
+			text-align: right;
+		}
+
+		#progressWrap {
+			width: 100%;
+			height: 14px;
+			border-radius: 999px;
+			border: 1px solid rgba(255,255,255,0.14);
+			background: rgba(255,255,255,0.06);
+			overflow: hidden;
+		}
+
+		#progressBar {
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, rgba(189,215,46,0.95), rgba(189,215,46,0.72));
+			border-radius: 999px;
+			transition: width 120ms linear;
+		}
+
+		#overlayHint {
+			margin-top: 10px;
+			font-size: 12px;
+			line-height: 1.4;
+			color: rgba(255,255,255,0.52);
+		}
+	</style>
+</head>
+
+<body>
+	<div id="overlay">
+		<div id="overlayCard">
+			<div id="overlayTitle">Unreal Tournament 99</div>
+			<div id="overlayRow">
+				<div id="status">Downloading...</div>
+				<div id="percent">0%</div>
+			</div>
+			<div id="progressWrap">
+				<div id="progressBar"></div>
+			</div>
+			<div id="overlayHint">Loading Unreal Tournament 99 game files...</div>
+		</div>
+	</div>
+
+	<div id="gameRoot">
+		<canvas id="canvas" tabindex="0" onclick="window.focus();" oncontextmenu="event.preventDefault();"></canvas>
+	</div>
+
+<script type="text/javascript" src="cacheAppData.js"></script>
+
+	<script type="text/javascript">
+		(function () {
+			var overlayEl = document.getElementById('overlay');
+			var statusElement = document.getElementById('status');
+			var canvasEl = document.getElementById('canvas');
+			var percentEl = document.getElementById('percent');
+			var progressBarEl = document.getElementById('progressBar');
+
+			function showOverlay() {
+				overlayEl.classList.remove('hidden');
+				overlayEl.style.visibility = 'visible';
+			}
+			function hideOverlay() {
+				overlayEl.classList.add('hidden');
+			}
+			function setOverlayProgress(pct) {
+				var clamped = Math.max(0, Math.min(100, pct || 0));
+				percentEl.textContent = clamped.toFixed(0) + "%";
+				progressBarEl.style.width = clamped.toFixed(2) + "%";
+			}
+
+			/**
+			 * ONLY force CSS display size to fill the viewport.
+			 * Never force canvas.width / canvas.height after engine starts.
+			 * Engine owns the internal resolution; we only stretch the result.
+			 */
+			function applyCanvasCSS() {
+				var w = window.innerWidth || document.documentElement.clientWidth || 1;
+				var h = window.innerHeight || document.documentElement.clientHeight || 1;
+
+				canvasEl.style.setProperty('position', 'absolute', 'important');
+				canvasEl.style.setProperty('left', '0px', 'important');
+				canvasEl.style.setProperty('top', '0px', 'important');
+				canvasEl.style.setProperty('right', 'auto', 'important');
+				canvasEl.style.setProperty('bottom', 'auto', 'important');
+				canvasEl.style.setProperty('width', w + 'px', 'important');
+				canvasEl.style.setProperty('height', h + 'px', 'important');
+				canvasEl.style.setProperty('max-width', 'none', 'important');
+				canvasEl.style.setProperty('max-height', 'none', 'important');
+				canvasEl.style.setProperty('min-width', '0', 'important');
+				canvasEl.style.setProperty('min-height', '0', 'important');
+				canvasEl.style.setProperty('margin', '0', 'important');
+				canvasEl.style.setProperty('padding', '0', 'important');
+				canvasEl.style.setProperty('border', '0', 'important');
+			}
+
+			var forceLoopRunning = false;
+			function startForceCSSLoop() {
+				if (forceLoopRunning) return;
+				forceLoopRunning = true;
+				function loop() {
+					applyCanvasCSS();
+					requestAnimationFrame(loop);
+				}
+				requestAnimationFrame(loop);
+			}
+
+			(function installRectAndPointerLockShim() {
+				canvasEl.getBoundingClientRect = function () {
+					var w = window.innerWidth || 1;
+					var h = window.innerHeight || 1;
+					return {
+						left: 0, top: 0, right: w, bottom: h,
+						width: w, height: h, x: 0, y: 0
+					};
+				};
+
+				function isLocked() {
+					return document.pointerLockElement === canvasEl ||
+						document.mozPointerLockElement === canvasEl ||
+						document.webkitPointerLockElement === canvasEl;
+				}
+
+				function primeMouseNow() {
+					try {
+						var w = window.innerWidth || 1;
+						var h = window.innerHeight || 1;
+						var evt = new MouseEvent('mousemove', {
+							clientX: w / 2, clientY: h / 2,
+							screenX: w / 2, screenY: h / 2,
+							movementX: 0, movementY: 0,
+							bubbles: true, cancelable: true, view: window
+						});
+						canvasEl.dispatchEvent(evt);
+					} catch (e) {}
+				}
+
+				function onLockChange() {
+					if (!isLocked()) return;
+					applyCanvasCSS();
+					primeMouseNow();
+					setTimeout(function () { applyCanvasCSS(); primeMouseNow(); }, 50);
+					setTimeout(function () { applyCanvasCSS(); primeMouseNow(); }, 200);
+				}
+
+				document.addEventListener('pointerlockchange', onLockChange, false);
+				document.addEventListener('mozpointerlockchange', onLockChange, false);
+				document.addEventListener('webkitpointerlockchange', onLockChange, false);
+
+				canvasEl.addEventListener('mousedown', function () {
+					setTimeout(applyCanvasCSS, 0);
+					setTimeout(applyCanvasCSS, 50);
+				}, true);
+
+				canvasEl.addEventListener('click', function () {
+					try { canvasEl.focus(); } catch (e) {}
+				}, true);
+			})();
+
+			window.addEventListener('resize', function () {
+				applyCanvasCSS();
+				setTimeout(applyCanvasCSS, 0);
+				setTimeout(applyCanvasCSS, 50);
+			});
+
+			document.addEventListener('fullscreenchange', function () {
+				applyCanvasCSS();
+				setTimeout(applyCanvasCSS, 0);
+				setTimeout(applyCanvasCSS, 50);
+			});
+			document.addEventListener('webkitfullscreenchange', function () {
+				applyCanvasCSS();
+				setTimeout(applyCanvasCSS, 0);
+			});
+
+			var mainHasStarted = false;
+			var rafTicks = 0;
+			function startRafWatcher() {
+				function tick() {
+					rafTicks++;
+					if (mainHasStarted && rafTicks > 10) {
+						hideOverlay();
+						startForceCSSLoop();
+						return;
+					}
+					requestAnimationFrame(tick);
+				}
+				requestAnimationFrame(tick);
+			}
+
+			var Module = window.Module || {};
+			window.Module = Module;
+
+			Module.noInitialRun = true;
+			Module.preInit = [];
+			Module.postRun = [];
+
+			var persist = {
+				mounted: false,
+				syncing: false,
+				autosyncTimer: null,
+				exitInProgress: false
+			};
+
+			function ensureDir(path) { try { FS.mkdir(path); } catch (e) {} }
+			function exists(path) { try { return FS.analyzePath(path).exists; } catch (e) { return false; } }
+			function isDir(path) { try { return (FS.stat(path).mode & 16384) !== 0; } catch (e) { return false; } }
+
+			function listDir(path) {
+				try { return FS.readdir(path).filter(function (n) { return n !== '.' && n !== '..'; }); }
+				catch (e) { return []; }
+			}
+
+			function copyFile(src, dst) {
+				var data = FS.readFile(src, { encoding: 'binary' });
+				FS.mkdirTree(PATH.dirname(dst));
+				FS.writeFile(dst, data, { encoding: 'binary' });
+			}
+
+			function copyTree(srcDir, dstDir, overwrite) {
+				if (!exists(srcDir) || !isDir(srcDir)) return;
+				FS.mkdirTree(dstDir);
+				var items = listDir(srcDir);
+				for (var i = 0; i < items.length; i++) {
+					var name = items[i];
+					var s = srcDir + '/' + name;
+					var d = dstDir + '/' + name;
+					if (isDir(s)) {
+						copyTree(s, d, overwrite);
+					} else {
+						if (overwrite || !exists(d)) copyFile(s, d);
+					}
+				}
+			}
+
+			var WRITE_PATHS = ['/System', '/Save', '/home', '/user', '/Users'];
+
+			function mountPersistentFS(cb) {
+				if (persist.mounted) { cb && cb(); return; }
+				var idbfsAvailable = (typeof IDBFS !== "undefined");
+				console.log("IDBFS available:", idbfsAvailable);
+				Module.setStatus("Storage: IDBFS " + (idbfsAvailable ? "available" : "NOT available"));
+				if (!idbfsAvailable) { cb && cb(); return; }
+				ensureDir('/Persistent');
+				try {
+					FS.mount(IDBFS, { root: 'ut99_persist' }, '/Persistent');
+					persist.mounted = true;
+				} catch (e) {
+					console.warn("Failed to mount IDBFS:", e);
+					cb && cb();
+					return;
+				}
+				FS.syncfs(true, function (err) {
+					if (err) console.warn("Initial syncfs(true) failed:", err);
+					cb && cb();
+				});
+			}
+
+			function pullPersistedIntoGame() {
+				for (var i = 0; i < WRITE_PATHS.length; i++) {
+					var p = WRITE_PATHS[i];
+					var key = p.replace(/\//g, '_');
+					var src = '/Persistent/fs' + key;
+					if (exists(src) && isDir(src)) {
+						ensureDir(p);
+						copyTree(src, p, true);
+					}
+				}
+			}
+
+			function pushGameIntoPersisted() {
+				ensureDir('/Persistent');
+				ensureDir('/Persistent/fs');
+				for (var i = 0; i < WRITE_PATHS.length; i++) {
+					var p = WRITE_PATHS[i];
+					if (!exists(p) || !isDir(p)) continue;
+					var key = p.replace(/\//g, '_');
+					var dst = '/Persistent/fs' + key;
+					ensureDir(dst);
+					copyTree(p, dst, true);
+				}
+			}
+
+			function flushPersistentFS(reason, cb) {
+				cb = cb || function () {};
+				if (!persist.mounted) { cb(false); return; }
+				if (persist.syncing) { cb(false); return; }
+				persist.syncing = true;
+				try { pushGameIntoPersisted(); } catch (e) { console.warn("pushGameIntoPersisted failed:", e); }
+				try {
+					FS.syncfs(false, function (err) {
+						if (err) console.warn("syncfs(false) failed [" + (reason || "unknown") + "]:", err);
+						persist.syncing = false;
+						cb(!err);
+					});
+				} catch (e) {
+					persist.syncing = false;
+					cb(false);
+				}
+			}
+
+			function doSafeExit() {
+				if (persist.exitInProgress) return;
+				persist.exitInProgress = true;
+				showOverlay();
+				Module.setStatus("Saving...");
+				flushPersistentFS('exit', function () {
+					Module.setStatus("Game exited. Reload the page to play again.");
+				});
+			}
+
+			function installFlushHooks() {
+				window.addEventListener('pagehide', function () { flushPersistentFS('pagehide'); }, { capture: true });
+				document.addEventListener('visibilitychange', function () {
+					if (document.visibilityState === 'hidden') flushPersistentFS('visibilitychange');
+				}, { capture: true });
+				window.addEventListener('beforeunload', function () { flushPersistentFS('beforeunload'); }, { capture: true });
+				if (!persist.autosyncTimer) {
+					persist.autosyncTimer = setInterval(function () {
+						flushPersistentFS('autosync');
+					}, 300000);
+				}
+			}
+
+			Module.preRun = function () {
+				applyCanvasCSS();
+
+				var dbname = 'ut99';
+				var baseurl = './gamedata/';
+				var syncdata = syncDataFiles(dbname, baseurl);
+
+				syncdata.onerror = function (why) { Module.setStatus(why); };
+				syncdata.onprogress = function (why) { Module.setStatus(why); };
+
+				syncdata.onsuccess = function (why) {
+					console.log(why);
+
+					var db = syncdata.db;
+					var manifest = syncdata.manifest;
+					syncdata.failed = false;
+					syncdata.num_requests = 0;
+					syncdata.total_requests = 0;
+
+					db.onerror = function (event) {
+						Module.setStatus("Database error: " + event.target.error.message);
+						syncdata.failed = true;
+					};
+
+					var transaction = db.transaction("data", "readonly");
+					var objstore = transaction.objectStore("data");
+					var dataindex = objstore.index("data");
+
+					for (var i in manifest) {
+						syncdata.total_requests++;
+						syncdata.num_requests++;
+
+						var req = dataindex.get(i);
+						req.filesize = manifest[i].filesize;
+
+						req.onsuccess = function (event) {
+							var path = "/" + event.target.result.filename;
+							var ui8arr = new Uint8Array(event.target.result.chunk);
+							var len = event.target.filesize;
+							var arr = new Array(len);
+							for (var j = 0; j < len; ++j) arr[j] = ui8arr[j];
+
+							var basedir = PATH.dirname(path);
+							FS.mkdirTree(basedir);
+
+							if (!FS.createDataFile(basedir, PATH.basename(path), arr, true, true, true)) {
+								Module.setStatus("ERROR: Failed to put '" + path + "' in MEMFS.");
+								return;
+							}
+
+							var completed = syncdata.total_requests - syncdata.num_requests;
+							Module.setStatus("Preparing... (" + completed + '/' + syncdata.total_requests + ')');
+							syncdata.num_requests--;
+
+							if (syncdata.num_requests <= 0 && !syncdata.failed) {
+								applyCanvasCSS();
+								Module.setStatus("Preparing storage...");
+
+								mountPersistentFS(function () {
+									try {
+										if (persist.mounted) pullPersistedIntoGame();
+										installFlushHooks();
+									} catch (e) {
+										console.warn("Persistence setup error:", e);
+									}
+
+									applyCanvasCSS();
+									Module.setStatus("Running...");
+									mainHasStarted = true;
+									Module["callMain"]();
+									startForceCSSLoop();
+
+									setTimeout(applyCanvasCSS, 0);
+									setTimeout(applyCanvasCSS, 100);
+									setTimeout(applyCanvasCSS, 500);
+									setTimeout(applyCanvasCSS, 1500);
+								});
+							}
+						};
+					}
+				};
+			};
+
+			Module.print = function (text) {
+				if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+				console.log(text);
+				if (typeof text === "string" && text.indexOf("Exit: Exiting.") !== -1) {
+					doSafeExit();
+				}
+			};
+
+			Module.printErr = function (text) {
+				if (arguments.length > 1) text = Array.prototype.slice.call(arguments).join(' ');
+				console.error(text);
+			};
+
+			Module.canvas = (function () {
+				var canvas = canvasEl;
+				canvas.addEventListener("webglcontextlost", function (e) {
+					alert('WebGL context lost. You will need to reload the page.');
+					e.preventDefault();
+				}, false);
+				applyCanvasCSS();
+				return canvas;
+			})();
+
+			Module.onExit = function () {
+				doSafeExit();
+			};
+
+			Module.setStatus = function (text) {
+				showOverlay();
+				statusElement.textContent = text || "";
+				var m = (text || "").match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+				if (m) {
+					var done = parseFloat(m[2]);
+					var total = parseFloat(m[4]);
+					var pct = total > 0 ? (done / total) * 100 : 0;
+					setOverlayProgress(pct);
+				}
+			};
+
+			Module.totalDependencies = 0;
+			Module.monitorRunDependencies = function (left) {
+				this.totalDependencies = Math.max(this.totalDependencies, left);
+				Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies - left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
+			};
+
+			window.onerror = function () {
+				Module.setStatus('Exception thrown, see JavaScript console');
+				showOverlay();
+				Module.setStatus = function (text) {
+					if (text) Module.printErr('[post-exception status] ' + text);
+				};
+			};
+
+			showOverlay();
+			setOverlayProgress(0);
+			applyCanvasCSS();
+			startRafWatcher();
+			setTimeout(applyCanvasCSS, 0);
+			setTimeout(applyCanvasCSS, 80);
+			setTimeout(applyCanvasCSS, 250);
+			Module.setStatus('Downloading...');
+		})();
+	</script>
+
+<script async type="text/javascript" src="index.js"></script>
+</body>
+</html>
